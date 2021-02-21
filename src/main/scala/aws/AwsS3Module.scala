@@ -10,26 +10,26 @@ import java.net.URL
 import scala.jdk.CollectionConverters.ListHasAsScala
 
 trait S3Client {
-  val S3service: S3Client.Service.type = S3Client.Service
+  val S3service: IO[S3Client.Service.type] = IO.pure(S3Client.Service)
 }
 
 object S3Client extends S3Client {
 
-  sealed trait Service {
-    def s3client(accessKeyId: String, secretAccessKey: String): IO[AmazonS3]
+  sealed trait Service[F[_]] {
+    def s3client(accessKeyId: String, secretAccessKey: String): F[AmazonS3]
 
-    def createBucket(client: AmazonS3, bucketName: String): IO[Bucket]
+    def createBucket(client: AmazonS3, bucketName: String): F[Bucket]
 
-    def upload(client: AmazonS3, bucketName: String, key: String, file: File, isPublic: Boolean): IO[PutObjectResult]
+    def upload(client: AmazonS3, bucketName: String, key: String, file: File, isPublic: Boolean): F[PutObjectResult]
 
-    def download(client: AmazonS3, bucketName: String, key: String): IO[S3Object]
+    def download(client: AmazonS3, bucketName: String, key: String): F[S3Object]
 
-    def getResourceUrl(client: AmazonS3, bucketName: String, key: String): IO[URL]
+    def getResourceUrl(client: AmazonS3, bucketName: String, key: String): F[URL]
 
-    def getObjectSummary(client: AmazonS3, bucketName: String, prefix: String): IO[Option[S3ObjectSummary]]
+    def getObjectSummary(client: AmazonS3, bucketName: String, prefix: String): F[Option[S3ObjectSummary]]
   }
 
-  object Service extends S3Client.Service {
+  object Service extends S3Client.Service[IO] {
     def s3client(accessKeyId: String, secretAccessKey: String): IO[AmazonS3] = IO {
       val credentials = new BasicAWSCredentials(accessKeyId, secretAccessKey)
       val provider = new AWSStaticCredentialsProvider(credentials)
@@ -67,23 +67,24 @@ object S3Client extends S3Client {
 
 class S3Api(accessKeyId: String, secretAccessKey: String)(implicit S3service: S3Client) {
 
-  val s3client: IO[AmazonS3] =
+  val session: IO[(S3Client.Service.type, AmazonS3)] =
     for {
-      client <- S3service.S3service.s3client(accessKeyId, secretAccessKey)
-    } yield client
+      service <- S3service.S3service
+      client <- service.s3client(accessKeyId, secretAccessKey)
+    } yield (service, client)
 
   def download(bucketName: String, key: String): IO[S3Object] =
     for {
-      client <- s3client
-      obj <- S3service.S3service.download(client, bucketName, key)
+      (service, client) <- session
+      obj <- service.download(client, bucketName, key)
     } yield obj
 
   def upload(bucketName: String, key: String, file: File, isPublic: Boolean): IO[PutObjectResult] =
     for {
-      client <- s3client
-      summary <- S3service.S3service.getObjectSummary(client, bucketName, key)
-      _ = if (summary.isEmpty) S3service.S3service.createBucket(client, bucketName)
-      obj <- S3service.S3service.upload(client, bucketName, key, file, isPublic)
+      (service, client) <- session
+      summary <- service.getObjectSummary(client, bucketName, key)
+      _ = if (summary.isEmpty) service.createBucket(client, bucketName)
+      obj <- service.upload(client, bucketName, key, file, isPublic)
     } yield obj
 }
 
