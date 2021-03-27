@@ -25,7 +25,7 @@ sealed trait S3Algebra[F[_]] {
   def getObjectSummary(client: AmazonS3, bucketName: String, prefix: String): F[Option[S3ObjectSummary]]
 }
 
-class S3Programs[F[_] : Monad](accessKeyId: String, secretAccessKey: String)(implicit S3: S3Algebra[F]) {
+case class S3Programs[F[_] : Monad](accessKeyId: String, secretAccessKey: String)(implicit S3: S3Algebra[F]) {
 
   val s3client: F[AmazonS3] =
     for {
@@ -47,12 +47,7 @@ class S3Programs[F[_] : Monad](accessKeyId: String, secretAccessKey: String)(imp
     } yield obj
 }
 
-object S3Programs {
-  def apply[F[_] : Monad](accessKeyId: String, secretAccessKey: String)(implicit S3: S3Algebra[F]) =
-    new S3Programs[F](accessKeyId, secretAccessKey)
-}
-
-object S3Impl {
+object S3Interpreter {
 
   implicit object S3CatsIOAlgebra extends S3Algebra[IO] {
     def s3client(accessKeyId: String, secretAccessKey: String): IO[AmazonS3] = IO {
@@ -87,12 +82,11 @@ object S3Impl {
     private def access(isPublic: Boolean): CannedAccessControlList =
       if (isPublic) CannedAccessControlList.PublicRead else CannedAccessControlList.Private
   }
-
 }
 
 object AwsS3Tagless extends App {
 
-  import S3Impl._
+  import S3Interpreter._
 
   val programs = S3Programs[IO]("accesskeyid", "accesskeysecret")
   val obj = programs.download("bucketname", "key").unsafeRunSync()
