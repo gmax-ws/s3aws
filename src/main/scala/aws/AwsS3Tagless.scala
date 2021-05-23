@@ -16,16 +16,29 @@ sealed trait S3Algebra[F[_]] {
 
   def createBucket(client: AmazonS3, bucketName: String): F[Bucket]
 
-  def upload(client: AmazonS3, bucketName: String, key: String, file: File, isPublic: Boolean): F[PutObjectResult]
+  def upload(
+      client: AmazonS3,
+      bucketName: String,
+      key: String,
+      file: File,
+      isPublic: Boolean
+  ): F[PutObjectResult]
 
   def download(client: AmazonS3, bucketName: String, key: String): F[S3Object]
 
   def getResourceUrl(client: AmazonS3, bucketName: String, key: String): F[URL]
 
-  def getObjectSummary(client: AmazonS3, bucketName: String, prefix: String): F[Option[S3ObjectSummary]]
+  def getObjectSummary(
+      client: AmazonS3,
+      bucketName: String,
+      prefix: String
+  ): F[Option[S3ObjectSummary]]
 }
 
-case class S3Programs[F[_] : Monad](accessKeyId: String, secretAccessKey: String)(implicit S3: S3Algebra[F]) {
+case class S3Programs[F[_]: Monad](
+    accessKeyId: String,
+    secretAccessKey: String
+)(implicit S3: S3Algebra[F]) {
 
   val s3client: F[AmazonS3] =
     for {
@@ -38,7 +51,12 @@ case class S3Programs[F[_] : Monad](accessKeyId: String, secretAccessKey: String
       obj <- S3.download(client, bucketName, key)
     } yield obj
 
-  def upload(bucketName: String, key: String, file: File, isPublic: Boolean): F[PutObjectResult] =
+  def upload(
+      bucketName: String,
+      key: String,
+      file: File,
+      isPublic: Boolean
+  ): F[PutObjectResult] =
     for {
       client <- s3client
       summary <- S3.getObjectSummary(client, bucketName, key)
@@ -50,37 +68,67 @@ case class S3Programs[F[_] : Monad](accessKeyId: String, secretAccessKey: String
 object S3Interpreter {
 
   implicit object S3CatsIOAlgebra extends S3Algebra[IO] {
-    def s3client(accessKeyId: String, secretAccessKey: String): IO[AmazonS3] = IO {
-      val credentials = new BasicAWSCredentials(accessKeyId, secretAccessKey)
-      val provider = new AWSStaticCredentialsProvider(credentials)
-      AmazonS3ClientBuilder.standard()
-        .withCredentials(provider)
-        .build()
-    }
+    def s3client(accessKeyId: String, secretAccessKey: String): IO[AmazonS3] =
+      IO {
+        val credentials = new BasicAWSCredentials(accessKeyId, secretAccessKey)
+        val provider = new AWSStaticCredentialsProvider(credentials)
+        AmazonS3ClientBuilder
+          .standard()
+          .withCredentials(provider)
+          .build()
+      }
 
-    def createBucket(client: AmazonS3, bucketName: String): IO[Bucket] = IO {
-      client.createBucket(bucketName)
-    }
+    def createBucket(client: AmazonS3, bucketName: String): IO[Bucket] =
+      IO {
+        client.createBucket(bucketName)
+      }
 
-    def upload(client: AmazonS3, bucketName: String, key: String, file: File, isPublic: Boolean): IO[PutObjectResult] = IO {
-      val request = new PutObjectRequest(bucketName, key, file)
-        .withCannedAcl(access(isPublic))
-      client.putObject(request)
-    }
+    def upload(
+        client: AmazonS3,
+        bucketName: String,
+        key: String,
+        file: File,
+        isPublic: Boolean
+    ): IO[PutObjectResult] =
+      IO {
+        val request = new PutObjectRequest(bucketName, key, file)
+          .withCannedAcl(access(isPublic))
+        client.putObject(request)
+      }
 
-    def download(client: AmazonS3, bucketName: String, key: String): IO[S3Object] = IO {
-      client.getObject(new GetObjectRequest(bucketName, key))
-    }
+    def download(
+        client: AmazonS3,
+        bucketName: String,
+        key: String
+    ): IO[S3Object] =
+      IO {
+        client.getObject(new GetObjectRequest(bucketName, key))
+      }
 
-    def getResourceUrl(client: AmazonS3, bucketName: String, key: String): IO[URL] =
+    def getResourceUrl(
+        client: AmazonS3,
+        bucketName: String,
+        key: String
+    ): IO[URL] =
       IO(client.getUrl(bucketName, key))
 
-    def getObjectSummary(client: AmazonS3, bucketName: String, prefix: String): IO[Option[S3ObjectSummary]] = IO {
-      client.listObjects(bucketName, prefix).getObjectSummaries.asScala.toList.headOption
-    }
+    def getObjectSummary(
+        client: AmazonS3,
+        bucketName: String,
+        prefix: String
+    ): IO[Option[S3ObjectSummary]] =
+      IO {
+        client
+          .listObjects(bucketName, prefix)
+          .getObjectSummaries
+          .asScala
+          .toList
+          .headOption
+      }
 
     private def access(isPublic: Boolean): CannedAccessControlList =
-      if (isPublic) CannedAccessControlList.PublicRead else CannedAccessControlList.Private
+      if (isPublic) CannedAccessControlList.PublicRead
+      else CannedAccessControlList.Private
   }
 }
 
